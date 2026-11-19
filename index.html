@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b72d9">
+<title>カギ管理アプリ</title>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif;background:#f3f6fa;color:#172033}
+header{background:#0874d1;color:white;padding:16px 18px;position:sticky;top:0;z-index:5;box-shadow:0 2px 8px #0002}
+header h1{margin:0;font-size:22px}.wrap{max-width:900px;margin:auto;padding:16px}
+.card{background:white;border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px #0001}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stat{padding:16px;border-radius:14px;text-align:center;background:#eef6ff}.stat b{display:block;font-size:32px;color:#0874d1}.stat.red{background:#fff0f0}.stat.red b{color:#e53935}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.btn{border:0;border-radius:12px;padding:15px;font-size:16px;font-weight:bold;cursor:pointer}.blue{background:#0874d1;color:#fff}.green{background:#20a85a;color:#fff}.orange{background:#f39a19;color:#fff}.purple{background:#7050d8;color:#fff}.gray{background:#e8edf3;color:#273246}.danger{background:#e53935;color:white}
+.key{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #e1e7ee;border-radius:13px;padding:13px;margin:8px 0;background:#fff}.key-left{display:flex;align-items:center;gap:12px}.icon{font-size:28px}.name{font-weight:bold}.small{font-size:13px;color:#6b7280;margin-top:3px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;color:#fff;font-size:12px;font-weight:bold}.stored{background:#20a85a}.loaned{background:#e53935}
+input,select{width:100%;padding:13px;border:1px solid #ccd5df;border-radius:10px;font-size:16px;margin:6px 0 12px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.tabs{display:flex;gap:8px;margin-bottom:12px}.tabs button{flex:1;padding:10px;border:1px solid #ccd5df;border-radius:10px;background:white;font-weight:bold}.tabs .on{background:#0874d1;color:#fff;border-color:#0874d1}
+.modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;padding:18px;z-index:20}.modal.show{display:flex}.modalbox{background:white;border-radius:18px;padding:20px;width:min(500px,100%);max-height:90vh;overflow:auto}
+.nav{position:sticky;bottom:0;background:white;border-top:1px solid #ddd;display:grid;grid-template-columns:repeat(4,1fr);padding:7px;z-index:5}.nav button{border:0;background:white;padding:8px 3px;font-size:12px;color:#52606d}.nav .active{color:#0874d1;font-weight:bold}
+.hidden{display:none!important}.empty{text-align:center;color:#7b8794;padding:30px 10px}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr)}.stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+
+<style id="mobile-overrides">
+html,body{background:#f2f5f9}
+body{font-size:16px}
+header{padding:14px 14px}
+header .wrap{padding:0}
+header h1{font-size:20px}
+.wrap{max-width:520px;padding:12px}
+.card{border-radius:18px;padding:15px;margin-bottom:12px}
+.stats{gap:8px}
+.stat{padding:12px 6px;border-radius:14px}
+.stat b{font-size:28px}
+.grid{grid-template-columns:1fr 1fr;gap:9px}
+.btn{min-height:56px;padding:12px 9px;font-size:15px;-webkit-tap-highlight-color:transparent}
+.key{padding:12px 10px;border-radius:14px;min-height:76px}
+.key .btn{min-height:42px;padding:7px 10px}
+.icon{font-size:27px}
+.name{font-size:16px}
+.small{font-size:12px;line-height:1.45}
+.badge{font-size:11px;padding:5px 8px}
+input,select{font-size:17px;min-height:50px;padding:11px;border-radius:12px}
+.row{gap:7px}
+.tabs button{min-height:46px}
+.nav{max-width:520px;margin:auto;min-height:62px;padding:5px 2px;box-shadow:0 -2px 10px #0001}
+.nav button{font-size:11px;padding:7px 2px}
+.modal{padding:12px}
+.modalbox{width:100%;border-radius:20px;padding:18px}
+.modalbox .btn{min-height:52px}
+@media(max-width:360px){
+.grid{grid-template-columns:1fr}
+.stats{grid-template-columns:1fr 1fr}
+.stat:last-child{grid-column:1/-1}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>🔑 カギ管理アプリ</h1></div></header>
+<main class="wrap" id="app"></main>
+<nav class="nav">
+<button onclick="show('home')" id="n-home">🏠<br>ホーム</button>
+<button onclick="show('keys')" id="n-keys">🔑<br>カギ一覧</button>
+<button onclick="show('people')" id="n-people">👤<br>使用者</button>
+<button onclick="show('history')" id="n-history">📋<br>履歴</button>
+</nav>
+<div class="modal" id="modal"><div class="modalbox" id="modalbox"></div></div>
+
+<script>
+const seed={keys:[
+{id:1,name:"事務所",holder:null,loanAt:null},
+{id:2,name:"車庫",holder:"山田 太郎",loanAt:"2026/09/16 13:20"},
+{id:3,name:"倉庫",holder:null,loanAt:null},
+{id:4,name:"自宅",holder:null,loanAt:null},
+{id:5,name:"車両A",holder:"鈴木 一郎",loanAt:"2026/09/16 11:45"},
+{id:6,name:"車両B",holder:null,loanAt:null},
+{id:7,name:"金庫",holder:null,loanAt:null},
+{id:8,name:"予備",holder:null,loanAt:null}],
+people:["山田 太郎","佐藤 花子","鈴木 一郎","高橋 健","田中 美咲","伊藤 修","渡辺 直樹","中村 里香","小林 大輔","加藤 彩"],
+history:[
+{at:"2026/09/16 13:20",person:"山田 太郎",key:"車庫",action:"貸出"},
+{at:"2026/09/16 11:45",person:"鈴木 一郎",key:"車両A",action:"貸出"}]};
+let db=JSON.parse(localStorage.getItem("keyAppDB")||"null")||seed;
+function save(){localStorage.setItem("keyAppDB",JSON.stringify(db));if(cloudToken)pushCloud()}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function now(){let d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function show(page){
+document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("active"));document.getElementById("n-"+page)?.classList.add("active");
+let h="";
+if(page==="home") h=home();
+if(page==="keys") h=keys();
+if(page==="people") h=people();
+if(page==="history") h=history();
+app.innerHTML=h;
+}
+function home(){
+let loan=db.keys.filter(k=>k.holder).length;
+return `<div class="card"><div style="font-size:14px;color:#64748b">${new Date().toLocaleString("ja-JP")}</div><h2 style="margin:8px 0">現在の貸出状況</h2>
+<div class="stats"><div class="stat red"><b>${loan}</b>貸出中</div><div class="stat"><b>${db.keys.length}</b>カギ</div><div class="stat"><b>${db.people.length}</b>使用者</div></div></div>
+<div class="grid">
+<button class="btn blue" onclick="show('keys')">🔑 カギを借りる<br><small>カギを選択 → 名前を選択</small></button>
+<button class="btn green" onclick="returnPick()">↩️ カギを返す<br><small>（返却）</small></button>
+<button class="btn orange" onclick="show('people')">👤 誰が持っているか</button>
+<button class="btn purple" onclick="show('history')">📋 履歴を見る</button>
+</div>
+<div class="card"><h3>🔴 現在貸出中</h3>${db.keys.filter(k=>k.holder).map(k=>`<div class="key"><div><b>${esc(k.name)}</b><div class="small">${esc(k.holder)}・${esc(k.loanAt)}</div></div><span class="badge loaned">貸出中</span></div>`).join("")||'<div class="empty">現在貸出中のカギはありません</div>'}</div>
+<div class="card"><button class="btn gray" style="width:100%" onclick="admin()">⚙️ 管理者設定</button></div>`;
+}
+function keys(){
+return `<div class="card"><div class="row"><input id="keySearch" placeholder="カギを検索..." oninput="filterKeys()"><button class="btn blue" onclick="addKey()">＋登録</button></div><div id="keyList">${keyItems(db.keys)}</div></div>`;
+}
+function keyItems(arr){return arr.map(k=>`<div class="key"><div class="key-left"><span class="icon">🔑</span><div><div class="name">${esc(k.name)}</div><div class="small">${k.holder?`👤 ${esc(k.holder)}　${esc(k.loanAt)}`:"保管中"}</div></div></div><div><span class="badge ${k.holder?'loaned':'stored'}">${k.holder?'貸出中':'保管中'}</span><br><button class="btn ${k.holder?'green':'blue'}" style="margin-top:7px;padding:8px 12px;font-size:13px" onclick="${k.holder?`returnKey(${k.id})`:`borrow(${k.id})`}">${k.holder?'返却':'貸出'}</button><br><button class="btn danger" style="margin-top:6px;padding:7px 10px;font-size:12px" onclick="deleteKey(${k.id})">削除</button></div></div>`).join("")||'<div class="empty">カギがありません</div>'}
+function filterKeys(){let q=document.getElementById("keySearch").value.toLowerCase();document.getElementById("keyList").innerHTML=keyItems(db.keys.filter(k=>k.name.toLowerCase().includes(q)))}
+function people(){
+return `<div class="card"><h2>誰が持っているか</h2><input placeholder="使用者を検索..." oninput="filterPeople()" id="personSearch"><div id="personList">${personItems(db.people)}</div></div>`;
+}
+function personItems(arr){return arr.map(p=>{let ks=db.keys.filter(k=>k.holder===p);return `<div class="key"><div><b>👤 ${esc(p)}</b><div class="small">${ks.length?ks.map(k=>`🔑 ${esc(k.name)}`).join("　"):"貸出中のカギはありません"}</div></div><div><span class="badge ${ks.length?'loaned':'stored'}">${ks.length}本</span><br><button class="btn danger" style="margin-top:6px;padding:7px 10px;font-size:12px" onclick="deletePersonByIndex(${db.people.indexOf(p)})">削除</button></div></div>`}).join("")}
+function filterPeople(){let q=document.getElementById("personSearch").value.toLowerCase();document.getElementById("personList").innerHTML=personItems(db.people.filter(p=>p.toLowerCase().includes(q)))}
+function history(){
+return `<div class="card"><h2>📋 貸出・返却履歴</h2>${db.history.slice().reverse().map(x=>`<div class="key"><div><b>${esc(x.key)}</b><div class="small">${esc(x.person)}　${esc(x.at)}</div></div><span class="badge ${x.action==='返却'?'stored':'loaned'}">${x.action}</span></div>`).join("")||'<div class="empty">履歴はありません</div>'}</div>`;
+}
+function borrow(id){
+let k=db.keys.find(x=>x.id===id); if(!k)return;
+modalbox.innerHTML=`<h2>🔑 ${esc(k.name)}を借りる</h2>
+<p style="font-weight:bold;margin-bottom:6px">使用する人の名前を選んでください</p>
+<select id="personSelect">
+<option value="">▼ 名前を選択してください</option>
+${db.people.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+</select>
+<div class="row">
+<button class="btn gray" onclick="closeModal()">キャンセル</button>
+<button class="btn blue" onclick="doBorrow(${id})">名前を確認して貸出</button>
+</div>`;modal.classList.add("show")
+}
+function doBorrow(id){
+let p=document.getElementById("personSelect").value,k=db.keys.find(x=>x.id===id);
+if(!p){alert("借りる人の名前を選択してください。");return}
+if(k.holder){alert("このカギは現在貸出中です。");closeModal();return}
+k.holder=p;k.loanAt=now();db.history.push({at:k.loanAt,person:p,key:k.name,action:"貸出"});save();closeModal();show("home")
+}
+function returnKey(id){
+let k=db.keys.find(x=>x.id===id);if(!k)return;
+modalbox.innerHTML=`<h2>↩️ 返却確認</h2><div class="card"><b>🔑 ${esc(k.name)}</b><p>現在の使用者：${esc(k.holder)}</p><p>貸出日時：${esc(k.loanAt)}</p></div><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn green" onclick="doReturn(${id})">返却する</button></div>`;modal.classList.add("show")
+}
+function doReturn(id){let k=db.keys.find(x=>x.id===id);if(!k||!k.holder)return;let p=k.holder,at=now();db.history.push({at,person:p,key:k.name,action:"返却"});k.holder=null;k.loanAt=null;save();closeModal();show("home")}
+function returnPick(){let ks=db.keys.filter(k=>k.holder);if(!ks.length){alert("現在貸出中のカギはありません。");return} modalbox.innerHTML=`<h2>返却するカギ</h2>${ks.map(k=>`<button class="btn gray" style="width:100%;margin:5px 0;text-align:left" onclick="returnKey(${k.id})">🔑 ${esc(k.name)}　—　${esc(k.holder)}</button>`).join("")}<button class="btn gray" style="width:100%;margin-top:10px" onclick="closeModal()">キャンセル</button>`;modal.classList.add("show")}
+function addKey(){modalbox.innerHTML=`<h2>🔑 カギを登録</h2><input id="newKey" placeholder="例：車両C"><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn blue" onclick="saveKey()">登録</button></div>`;modal.classList.add("show")}
+function saveKey(){let n=document.getElementById("newKey").value.trim();if(!n)return alert("カギ名を入力してください");db.keys.push({id:Date.now(),name:n,holder:null,loanAt:null});save();closeModal();show("keys")}
+function admin(){modalbox.innerHTML=`<h2>⚙️ 管理者設定</h2><p>使用者・カギの登録と削除、共有設定ができます。</p><button class="btn blue" style="width:100%;margin:5px 0" onclick="addKey();">🔑 カギを登録</button><button class="btn orange" style="width:100%;margin:5px 0" onclick="addPerson();">👤 使用者を登録</button><button class="btn purple" style="width:100%;margin:5px 0" onclick="cloudSettings()">☁️ 共有設定</button><button class="btn danger" style="width:100%;margin:5px 0" onclick="resetData()">データを初期化</button><button class="btn gray" style="width:100%;margin-top:8px" onclick="closeModal()">閉じる</button>`;modal.classList.add("show")}
+function addPerson(){modalbox.innerHTML=`<h2>👤 使用者を登録</h2><input id="newPerson" placeholder="氏名"><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn blue" onclick="savePerson()">登録</button></div>`;modal.classList.add("show")}
+function savePerson(){let n=document.getElementById("newPerson").value.trim();if(!n)return alert("氏名を入力してください");db.people.push(n);save();closeModal();show("people")}
+function resetData(){if(cloudToken){alert("共有中は初期化できません。管理者がデータベースで実施してください。");return}if(confirm("データを初期状態に戻しますか？")){localStorage.removeItem("keyAppDB");location.reload()}}
+function deleteKey(id){
+ const k=db.keys.find(x=>x.id===id);if(!k)return;
+ if(k.holder){alert('貸出中のカギは削除できません。先に返却してください。');return}
+ if(!confirm('「'+k.name+'」を削除しますか？\n過去の貸出・返却履歴は残ります。'))return;
+ db.keys=db.keys.filter(x=>x.id!==id);save();show('keys');
+}
+function deletePersonByIndex(i){
+ const p=db.people[i];if(p===undefined)return;
+ if(db.keys.some(k=>k.holder===p)){alert('この使用者には貸出中のカギがあります。先に返却してください。');return}
+ if(!confirm('「'+p+'」を削除しますか？\n過去の履歴は残ります。'))return;
+ db.people.splice(i,1);save();show('people');
+}
+function cloudSettings(){
+ modalbox.innerHTML=`<h2>☁️ 複数人で共有</h2><p>Supabaseに接続すると全員で同じデータを使用できます。最初に付属の設定手順に従ってください。</p><label>Project URL</label><input id="cloudUrl" placeholder="https://xxxxx.supabase.co" value="${esc(localStorage.getItem('cloudUrl')||'')}"><label>公開用 anon / publishable key</label><input id="cloudKey" placeholder="sb_publishable_..." value="${esc(localStorage.getItem('cloudKey')||'')}"><label>共通ログイン用メールアドレス</label><input id="cloudEmail" type="email" placeholder="team@example.com" value="${esc(localStorage.getItem('cloudEmail')||'')}"><label>共通ログイン用パスワード</label><input id="cloudPassword" type="password" placeholder="パスワードは保存されません"><div class="row"><button class="btn gray" onclick="closeModal()">閉じる</button><button class="btn blue" onclick="connectCloud()">接続</button></div><p class="small" id="cloudMsg">${cloudToken?'接続済み（共有データを読み込み中）':'未接続：この端末だけに保存中'}</p><button class="btn gray" style="width:100%" onclick="disconnectCloud()">この端末の接続を解除</button>`;
+ modal.classList.add('show');
+}
+let cloudToken=null,cloudVersion=null,cloudBusy=false;
+const cloudBase=()=>localStorage.getItem('cloudUrl')?.replace(/\/$/,'');
+const cloudHeaders=()=>({'apikey':localStorage.getItem('cloudKey')||'','Authorization':'Bearer '+cloudToken,'Content-Type':'application/json'});
+async function connectCloud(){
+ const url=document.getElementById('cloudUrl').value.trim().replace(/\/$/,'');
+ const key=document.getElementById('cloudKey').value.trim();
+ const email=document.getElementById('cloudEmail').value.trim();
+ const password=document.getElementById('cloudPassword').value;
+ if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)||!key||!email||!password){alert('URL・公開用キー・メール・パスワードを確認してください');return}
+ const msg=document.getElementById('cloudMsg');msg.textContent='接続しています…';
+ try{
+ const r=await fetch(url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':key,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+ const a=await r.json();if(!r.ok||!a.access_token)throw Error(a.msg||a.error_description||'ログインに失敗しました');
+ localStorage.setItem('cloudUrl',url);localStorage.setItem('cloudKey',key);localStorage.setItem('cloudEmail',email);
+ cloudToken=a.access_token;sessionStorage.setItem('cloudToken',cloudToken);sessionStorage.setItem('cloudRefresh',a.refresh_token);
+ await pullCloud(true);closeModal();alert('共有データに接続しました');
+ }catch(e){msg.textContent='接続失敗: '+e.message}
+}
+async function refreshCloudToken(){
+ const refresh=sessionStorage.getItem('cloudRefresh');if(!refresh)return;
+ const r=await fetch(cloudBase()+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{apikey:localStorage.getItem('cloudKey'),'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh})});
+ if(!r.ok){cloudToken=null;sessionStorage.removeItem('cloudToken');return}
+ const a=await r.json();cloudToken=a.access_token;sessionStorage.setItem('cloudToken',a.access_token);sessionStorage.setItem('cloudRefresh',a.refresh_token);
+}
+async function pullCloud(force=false){
+ if(!cloudToken||cloudBusy||document.getElementById('modal').classList.contains('show')&&!force)return;
+ const r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&select=data,version',{headers:cloudHeaders()});
+ if(r.status===401){await refreshCloudToken();return}
+ if(!r.ok)throw Error('共有データの取得に失敗: '+r.status);
+ const rows=await r.json();if(!rows.length)throw Error('共有テーブルの初期設定が必要です');
+ if(force||cloudVersion!==rows[0].version){db=rows[0].data;cloudVersion=rows[0].version;localStorage.setItem('keyAppDB',JSON.stringify(db));if(!document.getElementById('modal').classList.contains('show'))show(document.querySelector('.nav .active')?.id.replace('n-','')||'home')}
+}
+async function pushCloud(){
+ if(!cloudToken||cloudBusy)return;
+ cloudBusy=true;
+ try{
+ const r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&version=eq.'+cloudVersion,{method:'PATCH',headers:{...cloudHeaders(),'Prefer':'return=representation'},body:JSON.stringify({data:db,version:cloudVersion+1})});
+ if(!r.ok)throw Error('保存に失敗: '+r.status);
+ const rows=await r.json();if(!rows.length)throw Error('他の端末で更新されました。再読み込みして操作し直してください');
+ cloudVersion=rows[0].version;
+ }catch(e){alert(e.message);cloudBusy=false;await pullCloud(true);return}
+ cloudBusy=false;
+}
+function disconnectCloud(){cloudToken=null;cloudVersion=null;sessionStorage.removeItem('cloudToken');sessionStorage.removeItem('cloudRefresh');localStorage.removeItem('cloudUrl');localStorage.removeItem('cloudKey');localStorage.removeItem('cloudEmail');closeModal();alert('共有接続を解除しました')}
+cloudToken=sessionStorage.getItem('cloudToken');
+if(cloudToken&&cloudBase())pullCloud(true).catch(e=>alert(e.message));
+setInterval(()=>{if(cloudToken)pullCloud().catch(e=>console.warn(e.message))},5000);
+setInterval(()=>{if(cloudToken)refreshCloudToken().catch(()=>{})},45*60*1000);
+function closeModal(){modal.classList.remove("show")}
+show("home");
+</script>
+</body>
+</html>
