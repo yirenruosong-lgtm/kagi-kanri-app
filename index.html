@@ -56,7 +56,7 @@ input,select{font-size:17px;min-height:50px;padding:11px;border-radius:12px}
 </style>
 </head>
 <body>
-<header><div class="wrap"><h1>🔑 カギ管理アプリ</h1></div></header>
+<header><div class="wrap"><h1>🔑 カギ管理アプリ（同時操作対応版）</h1></div></header>
 <main class="wrap" id="app"></main>
 <nav class="nav">
 <button onclick="show('home')" id="n-home">🏠<br>ホーム</button>
@@ -81,7 +81,24 @@ history:[
 {at:"2026/09/16 13:20",person:"山田 太郎",key:"車庫",action:"貸出"},
 {at:"2026/09/16 11:45",person:"鈴木 一郎",key:"車両A",action:"貸出"}]};
 let db=JSON.parse(localStorage.getItem("keyAppDB")||"null")||seed;
-function save(){localStorage.setItem("keyAppDB",JSON.stringify(db));if(cloudToken)pushCloud()}
+// 変更はサーバーの原子的処理が成功してから画面に反映する。
+let actionBusy=false;
+async function applyAction(op, page='home'){
+ if(actionBusy){alert('前の操作を保存中です。少し待ってください。');return false}
+ if(!cloudToken){alert('共有データに未接続です。共有設定から接続してください。');return false}
+ actionBusy=true;
+ try{
+  let r=await fetch(cloudBase()+'/rest/v1/rpc/key_app_apply',{method:'POST',headers:cloudHeaders(),body:JSON.stringify({p_op:op})});
+  if(r.status===401){await refreshCloudToken();if(!cloudToken)throw Error('再ログインが必要です');r=await fetch(cloudBase()+'/rest/v1/rpc/key_app_apply',{method:'POST',headers:cloudHeaders(),body:JSON.stringify({p_op:op})})}
+  let result=await r.json();
+  if(!r.ok)throw Error(result.message||result.hint||'保存に失敗しました（'+r.status+'）');
+  if(!result||!result.data||result.version===undefined)throw Error('サーバーからの応答を確認できません');
+  db=result.data;cloudVersion=result.version;
+  localStorage.setItem('keyAppDB',JSON.stringify(db));
+  show(page);return true;
+ }catch(e){alert('共有データを保存できませんでした：'+e.message+'。最新状態を読み込みます。');try{await pullCloud(true)}catch(_){}return false}
+ finally{actionBusy=false}
+}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function now(){let d=new Date();return d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
 function show(page){
@@ -132,41 +149,38 @@ ${db.people.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join("")}
 <button class="btn blue" onclick="doBorrow(${id})">名前を確認して貸出</button>
 </div>`;modal.classList.add("show")
 }
-function doBorrow(id){
-let p=document.getElementById("personSelect").value,k=db.keys.find(x=>x.id===id);
-if(!p){alert("借りる人の名前を選択してください。");return}
-if(k.holder){alert("このカギは現在貸出中です。");closeModal();return}
-k.holder=p;k.loanAt=now();db.history.push({at:k.loanAt,person:p,key:k.name,action:"貸出"});save();closeModal();show("home")
+async function doBorrow(id){
+ const p=document.getElementById('personSelect').value;
+ if(!p)return alert('借りる人の名前を選択してください。');
+ closeModal();await applyAction({type:'borrow',id:String(id),person:p,at:now()},'home');
 }
 function returnKey(id){
 let k=db.keys.find(x=>x.id===id);if(!k)return;
 modalbox.innerHTML=`<h2>↩️ 返却確認</h2><div class="card"><b>🔑 ${esc(k.name)}</b><p>現在の使用者：${esc(k.holder)}</p><p>貸出日時：${esc(k.loanAt)}</p></div><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn green" onclick="doReturn(${id})">返却する</button></div>`;modal.classList.add("show")
 }
-function doReturn(id){let k=db.keys.find(x=>x.id===id);if(!k||!k.holder)return;let p=k.holder,at=now();db.history.push({at,person:p,key:k.name,action:"返却"});k.holder=null;k.loanAt=null;save();closeModal();show("home")}
+async function doReturn(id){closeModal();await applyAction({type:'return',id:String(id),at:now()},'home')}
 function returnPick(){let ks=db.keys.filter(k=>k.holder);if(!ks.length){alert("現在貸出中のカギはありません。");return} modalbox.innerHTML=`<h2>返却するカギ</h2>${ks.map(k=>`<button class="btn gray" style="width:100%;margin:5px 0;text-align:left" onclick="returnKey(${k.id})">🔑 ${esc(k.name)}　—　${esc(k.holder)}</button>`).join("")}<button class="btn gray" style="width:100%;margin-top:10px" onclick="closeModal()">キャンセル</button>`;modal.classList.add("show")}
 function addKey(){modalbox.innerHTML=`<h2>🔑 カギを登録</h2><input id="newKey" placeholder="例：車両C"><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn blue" onclick="saveKey()">登録</button></div>`;modal.classList.add("show")}
-function saveKey(){let n=document.getElementById("newKey").value.trim();if(!n)return alert("カギ名を入力してください");db.keys.push({id:Date.now(),name:n,holder:null,loanAt:null});save();closeModal();show("keys")}
+async function saveKey(){let n=document.getElementById('newKey').value.trim();if(!n)return alert('カギ名を入力してください');closeModal();await applyAction({type:'add_key',id:Date.now()*1000+Math.floor(Math.random()*1000),name:n},'keys')}
 function admin(){modalbox.innerHTML=`<h2>⚙️ 管理者設定</h2><p>使用者・カギの登録と削除、共有設定ができます。</p><button class="btn blue" style="width:100%;margin:5px 0" onclick="addKey();">🔑 カギを登録</button><button class="btn orange" style="width:100%;margin:5px 0" onclick="addPerson();">👤 使用者を登録</button><button class="btn purple" style="width:100%;margin:5px 0" onclick="cloudSettings()">☁️ 共有設定</button><button class="btn danger" style="width:100%;margin:5px 0" onclick="resetData()">データを初期化</button><button class="btn gray" style="width:100%;margin-top:8px" onclick="closeModal()">閉じる</button>`;modal.classList.add("show")}
 function addPerson(){modalbox.innerHTML=`<h2>👤 使用者を登録</h2><input id="newPerson" placeholder="氏名"><div class="row"><button class="btn gray" onclick="closeModal()">キャンセル</button><button class="btn blue" onclick="savePerson()">登録</button></div>`;modal.classList.add("show")}
-function savePerson(){let n=document.getElementById("newPerson").value.trim();if(!n)return alert("氏名を入力してください");db.people.push(n);save();closeModal();show("people")}
+async function savePerson(){let n=document.getElementById('newPerson').value.trim();if(!n)return alert('氏名を入力してください');closeModal();await applyAction({type:'add_person',name:n},'people')}
 function resetData(){if(cloudToken){alert("共有中は初期化できません。管理者がデータベースで実施してください。");return}if(confirm("データを初期状態に戻しますか？")){localStorage.removeItem("keyAppDB");location.reload()}}
-function deleteKey(id){
- const k=db.keys.find(x=>x.id===id);if(!k)return;
- if(k.holder){alert('貸出中のカギは削除できません。先に返却してください。');return}
- if(!confirm('「'+k.name+'」を削除しますか？\n過去の貸出・返却履歴は残ります。'))return;
- db.keys=db.keys.filter(x=>x.id!==id);save();show('keys');
+async function deleteKey(id){
+ const k=db.keys.find(x=>String(x.id)===String(id));if(!k)return;
+ if(!confirm('「'+k.name+'」を削除しますか？\n過去の履歴は残ります。'))return;
+ await applyAction({type:'delete_key',id:String(id)},'keys');
 }
-function deletePersonByIndex(i){
+async function deletePersonByIndex(i){
  const p=db.people[i];if(p===undefined)return;
- if(db.keys.some(k=>k.holder===p)){alert('この使用者には貸出中のカギがあります。先に返却してください。');return}
  if(!confirm('「'+p+'」を削除しますか？\n過去の履歴は残ります。'))return;
- db.people.splice(i,1);save();show('people');
+ await applyAction({type:'delete_person',name:p},'people');
 }
 function cloudSettings(){
- modalbox.innerHTML=`<h2>☁️ 複数人で共有</h2><p>Supabaseに接続すると全員で同じデータを使用できます。最初に付属の設定手順に従ってください。</p><label>Project URL</label><input id="cloudUrl" placeholder="https://xxxxx.supabase.co" value="${esc(localStorage.getItem('cloudUrl')||'')}"><label>公開用 anon / publishable key</label><input id="cloudKey" placeholder="sb_publishable_..." value="${esc(localStorage.getItem('cloudKey')||'')}"><label>共通ログイン用メールアドレス</label><input id="cloudEmail" type="email" placeholder="team@example.com" value="${esc(localStorage.getItem('cloudEmail')||'')}"><label>共通ログイン用パスワード</label><input id="cloudPassword" type="password" placeholder="パスワードは保存されません"><div class="row"><button class="btn gray" onclick="closeModal()">閉じる</button><button class="btn blue" onclick="connectCloud()">接続</button></div><p class="small" id="cloudMsg">${cloudToken?'接続済み（共有データを読み込み中）':'未接続：この端末だけに保存中'}</p><button class="btn gray" style="width:100%" onclick="disconnectCloud()">この端末の接続を解除</button>`;
+ modalbox.innerHTML=`<h2>☁️ 複数人で共有</h2><p>Supabaseに接続すると全員で同じデータを使用できます。初回だけ設定すると次回から自動接続します。複数端末の同時操作はサーバー側で順番に処理します。</p><label>Project URL</label><input id="cloudUrl" placeholder="https://xxxxx.supabase.co" value="${esc(localStorage.getItem('cloudUrl')||'')}"><label>公開用 anon / publishable key</label><input id="cloudKey" placeholder="sb_publishable_..." value="${esc(localStorage.getItem('cloudKey')||'')}"><label>共通ログイン用メールアドレス</label><input id="cloudEmail" type="email" placeholder="team@example.com" value="${esc(localStorage.getItem('cloudEmail')||'')}"><label>共通ログイン用パスワード</label><input id="cloudPassword" type="password" placeholder="初回接続時のみ入力。次回から自動接続"><div class="row"><button class="btn gray" onclick="closeModal()">閉じる</button><button class="btn blue" onclick="connectCloud()">接続</button></div><p class="small" id="cloudMsg">${cloudToken?'接続済み（共有データを読み込み中）':'未接続：この端末だけに保存中'}</p><button class="btn gray" style="width:100%" onclick="disconnectCloud()">この端末の接続を解除</button>`;
  modal.classList.add('show');
 }
-let cloudToken=null,cloudVersion=null,cloudBusy=false;
+let cloudToken=null,cloudVersion=null,cloudBusy=false,cloudPending=false,cloudPulling=false;
 const cloudBase=()=>localStorage.getItem('cloudUrl')?.replace(/\/$/,'');
 const cloudHeaders=()=>({'apikey':localStorage.getItem('cloudKey')||'','Authorization':'Bearer '+cloudToken,'Content-Type':'application/json'});
 async function connectCloud(){
@@ -180,40 +194,50 @@ async function connectCloud(){
  const r=await fetch(url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':key,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
  const a=await r.json();if(!r.ok||!a.access_token)throw Error(a.msg||a.error_description||'ログインに失敗しました');
  localStorage.setItem('cloudUrl',url);localStorage.setItem('cloudKey',key);localStorage.setItem('cloudEmail',email);
- cloudToken=a.access_token;sessionStorage.setItem('cloudToken',cloudToken);sessionStorage.setItem('cloudRefresh',a.refresh_token);
- await pullCloud(true);closeModal();alert('共有データに接続しました');
+ cloudToken=a.access_token;localStorage.setItem('cloudToken',cloudToken);localStorage.setItem('cloudRefresh',a.refresh_token);
+ await pullCloud(true);closeModal();alert('共有データに接続しました。次回からこの端末は自動接続します');
  }catch(e){msg.textContent='接続失敗: '+e.message}
 }
 async function refreshCloudToken(){
- const refresh=sessionStorage.getItem('cloudRefresh');if(!refresh)return;
+ const refresh=localStorage.getItem('cloudRefresh');if(!refresh)return;
  const r=await fetch(cloudBase()+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{apikey:localStorage.getItem('cloudKey'),'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh})});
- if(!r.ok){cloudToken=null;sessionStorage.removeItem('cloudToken');return}
- const a=await r.json();cloudToken=a.access_token;sessionStorage.setItem('cloudToken',a.access_token);sessionStorage.setItem('cloudRefresh',a.refresh_token);
+ if(!r.ok){cloudToken=null;localStorage.removeItem('cloudToken');localStorage.removeItem('cloudRefresh');return}
+ const a=await r.json();cloudToken=a.access_token;localStorage.setItem('cloudToken',a.access_token);localStorage.setItem('cloudRefresh',a.refresh_token);
 }
 async function pullCloud(force=false){
- if(!cloudToken||cloudBusy||document.getElementById('modal').classList.contains('show')&&!force)return;
- const r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&select=data,version',{headers:cloudHeaders()});
- if(r.status===401){await refreshCloudToken();return}
- if(!r.ok)throw Error('共有データの取得に失敗: '+r.status);
- const rows=await r.json();if(!rows.length)throw Error('共有テーブルの初期設定が必要です');
- if(force||cloudVersion!==rows[0].version){db=rows[0].data;cloudVersion=rows[0].version;localStorage.setItem('keyAppDB',JSON.stringify(db));if(!document.getElementById('modal').classList.contains('show'))show(document.querySelector('.nav .active')?.id.replace('n-','')||'home')}
-}
-async function pushCloud(){
- if(!cloudToken||cloudBusy)return;
- cloudBusy=true;
+ if(!cloudToken||cloudBusy||cloudPulling||cloudPending||(!force&&document.getElementById('modal').classList.contains('show')))return;
+ cloudPulling=true;
  try{
- const r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&version=eq.'+cloudVersion,{method:'PATCH',headers:{...cloudHeaders(),'Prefer':'return=representation'},body:JSON.stringify({data:db,version:cloudVersion+1})});
- if(!r.ok)throw Error('保存に失敗: '+r.status);
- const rows=await r.json();if(!rows.length)throw Error('他の端末で更新されました。再読み込みして操作し直してください');
- cloudVersion=rows[0].version;
- }catch(e){alert(e.message);cloudBusy=false;await pullCloud(true);return}
- cloudBusy=false;
+  let r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&select=data,version',{headers:cloudHeaders()});
+  if(r.status===401){await refreshCloudToken();if(!cloudToken)throw Error('ログインの有効期限が切れました。再接続してください');r=await fetch(cloudBase()+'/rest/v1/key_app_state?id=eq.1&select=data,version',{headers:cloudHeaders()})}
+  if(!r.ok)throw Error('共有データの取得に失敗: '+r.status);
+  const rows=await r.json();if(!rows.length)throw Error('共有テーブルの初期設定が必要です');
+  if(force||cloudVersion!==rows[0].version){
+   db=rows[0].data;cloudVersion=rows[0].version;
+   localStorage.setItem('keyAppDB',JSON.stringify(db));
+   if(!document.getElementById('modal').classList.contains('show'))show(document.querySelector('.nav .active')?.id.replace('n-','')||'home');
+  }
+ }finally{cloudPulling=false}
 }
-function disconnectCloud(){cloudToken=null;cloudVersion=null;sessionStorage.removeItem('cloudToken');sessionStorage.removeItem('cloudRefresh');localStorage.removeItem('cloudUrl');localStorage.removeItem('cloudKey');localStorage.removeItem('cloudEmail');closeModal();alert('共有接続を解除しました')}
-cloudToken=sessionStorage.getItem('cloudToken');
-if(cloudToken&&cloudBase())pullCloud(true).catch(e=>alert(e.message));
-setInterval(()=>{if(cloudToken)pullCloud().catch(e=>console.warn(e.message))},5000);
-setInterval(()=>{if(cloudToken)refreshCloudToken().catch(()=>{})},45*60*1000);
+function disconnectCloud(){
+ if(cloudPending&&!confirm('まだ共有されていない変更があります。接続を解除しますか？'))return;
+ cloudToken=null;cloudVersion=null;cloudPending=false;
+ ['cloudToken','cloudRefresh','cloudUrl','cloudKey','cloudEmail','cloudPendingData'].forEach(k=>localStorage.removeItem(k));
+ closeModal();alert('共有接続を解除しました');
+}
+async function startCloud(){
+ cloudToken=localStorage.getItem('cloudToken')||sessionStorage.getItem('cloudToken');
+ if(!cloudToken||!cloudBase())return;
+ try{
+  await refreshCloudToken();
+  if(!cloudToken)throw Error('再ログインが必要です');
+  await pullCloud(true);
+
+ }catch(e){console.warn(e);alert('共有データの自動接続に失敗しました。共有設定から接続し直してください。')}
+}
+startCloud();
+setInterval(()=>{if(cloudToken&&!cloudPending)pullCloud().catch(e=>console.warn(e.message))},3000);
+setInterval(()=>{if(cloudToken)refreshCloudToken().catch(()=>{})},40*60*1000);
 function closeModal(){modal.classList.remove("show")}
 show("home");
 </script>
